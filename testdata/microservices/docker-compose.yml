@@ -1,0 +1,108 @@
+name: saas-platform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: saas-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASS:-secret123}
+      POSTGRES_DB: saas_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+
+  redis:
+    image: redis:7-alpine
+    container_name: saas-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: saas-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  auth-service:
+    image: saas/auth:latest
+    container_name: saas-auth
+    environment:
+      DATABASE_URL: postgres://postgres:secret123@postgres:5432/saas_dev
+      JWT_SECRET: ${JWT_SECRET:-supersecretkey}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4001:4001"
+
+  api-gateway:
+    image: saas/gateway:latest
+    container_name: saas-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+
+  billing-service:
+    image: saas/billing:latest
+    container_name: saas-billing
+    environment:
+      STRIPE_KEY: ${STRIPE_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    image: saas/worker:latest
+    profiles: ["background", "full"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: saas/web:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_started
+
+volumes:
+  pgdata:

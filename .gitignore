@@ -1,0 +1,26 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+/stackloom
+
+# Node / Frontend
+web/node_modules/
+.npm
+*.tsbuildinfo
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Environment & Temp
+.env
+.env.local
+*.log
+testdata/topology-report.html
