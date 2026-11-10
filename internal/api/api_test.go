@@ -54,6 +54,7 @@ func TestServerRESTEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
+	defer server.Close()
 
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux, nil)
@@ -90,8 +91,10 @@ func TestServerRESTEndpoints(t *testing.T) {
 	}
 	nodes, ok := graphObj["nodes"].(map[string]interface{})
 	if !ok || len(nodes) != 3 {
-		// default profile should have 3 services (db, redis, api; worker is in "background" profile)
 		t.Errorf("expected 3 default services, got %d", len(nodes))
+	}
+	if _, ok := topoResp["networks"]; !ok {
+		t.Errorf("expected networks object in topology response")
 	}
 
 	// 3. GET /api/lint
@@ -102,41 +105,44 @@ func TestServerRESTEndpoints(t *testing.T) {
 		t.Errorf("lint endpoint returned HTTP %d", w.Code)
 	}
 
-	// 4. POST /api/profiles/active -> activate "background"
-	profileReqBody, _ := json.Marshal(map[string]interface{}{
-		"profiles": []string{"background"},
-	})
-	req = httptest.NewRequest("POST", "/api/profiles/active", bytes.NewReader(profileReqBody))
+	// 4. GET /api/blast-radius?service=db
+	req = httptest.NewRequest("GET", "/api/blast-radius?service=db", nil)
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Errorf("active profiles endpoint returned HTTP %d", w.Code)
+		t.Errorf("blast radius endpoint returned HTTP %d", w.Code)
 	}
-	var activeResp map[string]interface{}
-	_ = json.Unmarshal(w.Body.Bytes(), &activeResp)
-	if activeResp["service_count"] != float64(4) {
-		t.Errorf("expected 4 services with background profile active, got %v", activeResp["service_count"])
+	var blastResp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &blastResp)
+	if blastResp["target_service"] != "db" || blastResp["affected_count"] != float64(1) {
+		t.Errorf("unexpected blast radius result: %+v", blastResp)
 	}
 
-	// 5. POST /api/actions/subgraph
-	subBody, _ := json.Marshal(map[string]interface{}{
-		"services": []string{"api"},
-		"action":   "start",
-		"upstream": true,
+	// 5. POST /api/fix/apply
+	fixBody, _ := json.Marshal(map[string]interface{}{
+		"suggested_override": "services:\n  db:\n    ports:\n      - \"5433:5432\"\n",
 	})
-	req = httptest.NewRequest("POST", "/api/actions/subgraph", bytes.NewReader(subBody))
+	req = httptest.NewRequest("POST", "/api/fix/apply", bytes.NewReader(fixBody))
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Errorf("subgraph action returned HTTP %d", w.Code)
+		t.Errorf("apply fix returned HTTP %d: %s", w.Code, w.Body.String())
 	}
-	var subResp map[string]interface{}
-	_ = json.Unmarshal(w.Body.Bytes(), &subResp)
-	if subResp["success"] != true {
-		t.Errorf("expected success: true in subgraph response")
+	var fixResp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &fixResp)
+	if fixResp["success"] != true {
+		t.Errorf("expected success: true in fix response")
 	}
 
-	// 6. GET /api/export
+	// 6. GET /api/probes
+	req = httptest.NewRequest("GET", "/api/probes", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("probes endpoint returned HTTP %d", w.Code)
+	}
+
+	// 7. GET /api/export
 	req = httptest.NewRequest("GET", "/api/export", nil)
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

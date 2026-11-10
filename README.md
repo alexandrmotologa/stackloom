@@ -6,13 +6,16 @@ Interactive Docker Compose topology studio, service dependency graph visualizer,
 
 ## Overview
 
-StackLoom solves common startup issues in multi-container Docker Compose stacks:
+StackLoom solves common startup issues and provides observability in multi-container Docker Compose stacks:
 
 1. **Port collisions**: Prevents `bind: address already in use` failures by testing local host socket availability before starting containers.
 2. **Circular dependencies**: Detects cyclic deadlocks in `depends_on` configurations using Tarjan's strongly connected components algorithm.
 3. **Missing environment variables**: Scans for `${VARIABLE}` references without defaults or `.env` entries.
 4. **Boot race conditions**: Flags services that depend on un-probed databases without proper healthchecks.
-5. **Selective sub-graph execution**: Lets developers start only dependencies (such as PostgreSQL and Redis) instead of running an entire 15-service stack.
+5. **Cascading failure simulation**: Calculates the blast radius of an outage on any service, highlighting cascading crash risks across the cluster.
+6. **1-click auto-fixer**: Applies suggested port remappings and resource limits directly into `docker-compose.override.yml`.
+7. **Selective sub-graph execution**: Lets developers start only dependencies (such as PostgreSQL and Redis) instead of running an entire 15-service stack.
+8. **Live hot-reload**: Automatically reloads the graph and linter diagnostics when compose files or `.env` change on disk.
 
 The application compiles into a single standalone binary under 15MB with an embedded React 19 visual canvas. It operates both as an offline static linter and as a live Docker supervisor.
 
@@ -23,7 +26,7 @@ The application compiles into a single standalone binary under 15MB with an embe
 ```
 [ docker-compose.yml / .env / overrides ]
                    │
-                   ▼
+                   ▼ (Live File Watcher)
 ┌────────────────────────────────────────────────────────┐
 │                   StackLoom Engine                     │
 │                                                        │
@@ -31,12 +34,15 @@ The application compiles into a single standalone binary under 15MB with an embe
 │  2. Directed Acyclic Graph (DAG) Builder               │
 │  3. Tarjan SCC Cycle Detector                          │
 │  4. Kahn Topological Startup Wave Sorter               │
-│  5. Pre-Flight Linter & Local TCP Socket Prober        │
-│  6. Docker Socket Bridge (/var/run/docker.sock)        │
+│  5. Cascading Blast Radius Calculator                  │
+│  6. Pre-Flight Linter & Local TCP Socket Prober        │
+│  7. Automated Override Fixer (with Safe Backups)       │
+│  8. Smart HTTP Endpoint Prober                         │
+│  9. Docker Socket Bridge (/var/run/docker.sock)        │
 │                                                        │
 │  ┌───────────────────────────┐ ┌────────────────────┐  │
 │  │ Embedded React 19 Canvas  │ │ CLI / JSON / HTML  │  │
-│  │ (Dagre Auto-Layout)       │ │ Exporter           │  │
+│  │ (Dagre Auto-Layout)       │ │ PNG / SVG Exporter │  │
 │  └───────────────────────────┘ └────────────────────┘  │
 └────────────────────────────────────────────────────────┘
 ```
@@ -87,17 +93,46 @@ stackloom serve -p 9095 -f docker-compose.yml -f docker-compose.override.yml
 stackloom serve -f docker-compose.yml --profile background,workers
 ```
 
-Features available in the web dashboard:
+Features in the web dashboard:
 - Interactive 2D graph with Dagre automatic hierarchical layout.
-- Service cards showing image, published ports, volumes, and health status.
 - Real-time CPU percentage and memory metrics streamed over WebSockets.
-- Pre-flight linter drawer with categorized findings and suggested YAML overrides.
-- Live container logs modal with regex search and stdout/stderr stream filters.
-- Sub-graph execution: launch databases and cache only with one click.
+- What-If Failure Simulator: click "What-If" on any node to view cascading blast radius.
+- Pre-flight linter drawer with 1-click "Apply Fix" button that updates `docker-compose.override.yml`.
+- Smart HTTP web link pills: open published web services directly in your browser with live latency checks.
+- Docker network filter: highlight services sharing a specific bridge network.
+- High-resolution canvas export to PNG, vector SVG, and standalone offline HTML.
+- Live file watcher: automatically refreshes the canvas when compose files or `.env` are modified on disk.
 
-### 2. Pre-Flight Linter CLI
+### 2. Cascading Failure Simulator (Blast Radius CLI)
 
-Run static checks in your terminal or in CI/CD pipelines:
+Simulate what happens if a specific service experiences an outage:
+
+```bash
+stackloom blast-radius -f docker-compose.yml postgres
+```
+
+Example output:
+
+```
+Outage Simulation: Failure of service "postgres"
+Cluster Blast Radius: 4 of 8 services affected (50.0% of cluster)
+
+Cascading Failure Impact Tree:
+  ├── Cascade Level 1:
+  │    ├── auth-service [FATAL CRASH] (awaits postgres via service_healthy)
+  │    ├── billing-service [FATAL CRASH] (awaits postgres via service_healthy)
+  ├── Cascade Level 2:
+  │    ├── api-gateway [DEGRADED] (awaits auth-service via service_started)
+  ├── Cascade Level 3:
+  │    ├── frontend [DEGRADED] (awaits api-gateway via service_started)
+
+Unaffected Services:
+  • rabbitmq, redis, worker
+```
+
+### 3. Pre-Flight Linter & 1-Click Fixer
+
+Run static checks in your terminal:
 
 ```bash
 # Human-readable terminal output
@@ -106,13 +141,14 @@ stackloom lint -f docker-compose.yml
 # Machine-readable JSON output for CI automation
 stackloom lint -f docker-compose.yml --format json
 
-# Skip local host socket probing in remote build environments
-stackloom lint -f docker-compose.yml --no-probe
+# Interactive wizard to apply suggested fixes to docker-compose.override.yml
+stackloom fix -f docker-compose.yml
+
+# Automatically apply all fixes without prompts
+stackloom fix -f docker-compose.yml --auto
 ```
 
-Exit code is `1` if critical errors exist, and `0` when all checks pass.
-
-### 3. Dependency Graph Visualizer
+### 4. Dependency Graph Visualizer
 
 Print the dependency hierarchy directly in the console:
 
@@ -127,15 +163,13 @@ stackloom graph -f docker-compose.yml --format mermaid
 stackloom graph -f docker-compose.yml --format dot
 ```
 
-### 4. Standalone HTML Export
+### 5. Standalone HTML Export
 
 Generate a self-contained HTML report with the complete interactive graph and linter diagnostics:
 
 ```bash
 stackloom export -f docker-compose.yml -o topology-report.html
 ```
-
-The exported file runs offline without external scripts or running servers.
 
 ---
 

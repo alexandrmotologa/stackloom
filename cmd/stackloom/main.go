@@ -16,6 +16,7 @@ import (
 	"github.com/alexandrmotologa/stackloom/internal/config"
 	"github.com/alexandrmotologa/stackloom/internal/docker"
 	"github.com/alexandrmotologa/stackloom/internal/export"
+	"github.com/alexandrmotologa/stackloom/internal/fixer"
 	"github.com/alexandrmotologa/stackloom/internal/graph"
 	"github.com/alexandrmotologa/stackloom/internal/linter"
 	"github.com/alexandrmotologa/stackloom/web"
@@ -40,6 +41,10 @@ func main() {
 		runLint(args)
 	case "graph":
 		runGraph(args)
+	case "blast-radius":
+		runBlastRadius(args)
+	case "fix":
+		runFix(args)
 	case "export":
 		runExport(args)
 	case "version", "--version", "-v":
@@ -65,16 +70,19 @@ Usage:
   stackloom [command] [options]
 
 Commands:
-  serve       Launch the interactive topology studio web dashboard (default)
-  lint        Run static pre-flight linter on compose configuration
-  graph       Print dependency graph (ASCII, Mermaid, or Graphviz DOT)
-  export      Generate a standalone offline HTML interactive report
-  version     Show application version
+  serve          Launch the interactive topology studio web dashboard (default)
+  lint           Run static pre-flight linter on compose configuration
+  graph          Print dependency graph (ASCII, Mermaid, or Graphviz DOT)
+  blast-radius   Simulate cascading failure impact of an outage on a service
+  fix            Automatically apply suggested YAML overrides to docker-compose.override.yml
+  export         Generate a standalone offline HTML interactive report
+  version        Show application version
 
 Examples:
   stackloom serve -p 9095 -f docker-compose.yml
   stackloom lint -f docker-compose.yml --format json
-  stackloom graph -f docker-compose.yml --format mermaid
+  stackloom blast-radius -f docker-compose.yml postgres
+  stackloom fix -f docker-compose.yml --auto
   stackloom export -f docker-compose.yml -o topology.html`)
 }
 
@@ -414,6 +422,149 @@ func runExport(args []string) {
 	}
 
 	fmt.Printf("✓ Standalone interactive HTML report saved to %s\n", *outputPath)
+}
+
+func runBlastRadius(args []string) {
+	fs := flag.NewFlagSet("blast-radius", flag.ExitOnError)
+	fileSingle := fs.String("f", "", "Compose file")
+	fs.StringVar(fileSingle, "file", "", "Compose file")
+	var filesList stringSliceFlags
+	fs.Var(&filesList, "files", "Multiple compose files")
+
+	_ = fs.Parse(args)
+	nonFlagArgs := fs.Args()
+	if len(nonFlagArgs) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: specify target service name to simulate outage (e.g. stackloom blast-radius -f docker-compose.yml postgres)\n")
+		os.Exit(1)
+	}
+	targetService := nonFlagArgs[0]
+
+	composeFiles := parseComposeFiles(fs, &filesList, fileSingle)
+	parser := compose.NewParser(nil)
+	merger := compose.NewMerger()
+	var baseConfig *compose.ComposeConfig
+
+	for _, file := range composeFiles {
+		res, err := parser.ParseFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", file, err)
+			os.Exit(1)
+		}
+		if baseConfig == nil {
+			baseConfig = res.Config
+		} else {
+			baseConfig = merger.Merge(baseConfig, res.Config)
+		}
+	}
+
+	g := graph.BuildGraph(baseConfig)
+	report := g.CalculateBlastRadius(targetService)
+
+	fmt.Printf("\nOutage Simulation: Failure of service %q\n", targetService)
+	fmt.Printf("Cluster Blast Radius: %d of %d services affected (%.1f%% of cluster)\n\n",
+		report.AffectedCount, report.TotalServices, report.BlastRadiusRatio*100)
+
+	if len(report.ImpactTree) == 0 {
+		fmt.Println("✓ Zero cascading impact: no other services depend on this service.")
+	} else {
+		fmt.Println("Cascading Failure Impact Tree:")
+		currentDepth := 0
+		for _, node := range report.ImpactTree {
+			if node.Depth != currentDepth {
+				currentDepth = node.Depth
+				fmt.Printf("  ├── Cascade Level %d:\n", currentDepth)
+			}
+			sevLabel := "[DEGRADED]"
+			if node.Severity == graph.SeverityFatal {
+				sevLabel = "[FATAL CRASH]"
+			}
+			fmt.Printf("  │    ├── %s %s (awaits %s via %s)\n", node.Service, sevLabel, node.DirectCause, node.Condition)
+		}
+	}
+
+	if len(report.Unaffected) > 0 {
+		fmt.Printf("\nUnaffected Services:\n  • %s\n", strings.Join(report.Unaffected, ", "))
+	}
+	fmt.Println()
+}
+
+func runFix(args []string) {
+	fs := flag.NewFlagSet("fix", flag.ExitOnError)
+	fileSingle := fs.String("f", "", "Compose file")
+	fs.StringVar(fileSingle, "file", "", "Compose file")
+	var filesList stringSliceFlags
+	fs.Var(&filesList, "files", "Multiple compose files")
+	auto := fs.Bool("auto", false, "Apply all fixes automatically without interactive prompt")
+
+	_ = fs.Parse(args)
+	composeFiles := parseComposeFiles(fs, &filesList, fileSingle)
+	parser := compose.NewParser(nil)
+	merger := compose.NewMerger()
+	var baseConfig *compose.ComposeConfig
+	var allUnsets []string
+	basePath := filepath.Dir(composeFiles[0])
+
+	for _, file := range composeFiles {
+		res, err := parser.ParseFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", file, err)
+			os.Exit(1)
+		}
+		allUnsets = append(allUnsets, res.UnsetEnvs...)
+		if baseConfig == nil {
+			baseConfig = res.Config
+		} else {
+			baseConfig = merger.Merge(baseConfig, res.Config)
+		}
+	}
+
+	g := graph.BuildGraph(baseConfig)
+	l := linter.NewLinter(true)
+	result := l.Lint(baseConfig, g, allUnsets, basePath)
+
+	var fixable []linter.Finding
+	for _, f := range result.Findings {
+		if f.SuggestedOverride != "" {
+			fixable = append(fixable, f)
+		}
+	}
+
+	if len(fixable) == 0 {
+		fmt.Println("✓ No automated overrides needed. All checks passed or no fixable rules triggered.")
+		return
+	}
+
+	fmt.Printf("\nFound %d fixable finding(s):\n", len(fixable))
+	autoFixer := fixer.NewAutoFixer(basePath)
+	appliedCount := 0
+
+	for i, f := range fixable {
+		fmt.Printf("\n[%d/%d] %s (%s): %s\n", i+1, len(fixable), f.RuleID, f.Service, f.Message)
+		fmt.Printf("Suggested YAML:\n%s\n", indent(f.SuggestedOverride, "  "))
+
+		apply := *auto
+		if !apply {
+			fmt.Print("Apply this fix to docker-compose.override.yml? [y/N]: ")
+			var response string
+			_, _ = fmt.Scanln(&response)
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response == "y" || response == "yes" {
+				apply = true
+			}
+		}
+
+		if apply {
+			msg, err := autoFixer.ApplyOverride(f.SuggestedOverride)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error applying override: %v\n", err)
+			} else {
+				fmt.Printf("✓ %s\n", msg)
+				appliedCount++
+			}
+		}
+	}
+
+	fmt.Printf("\nFinished: applied %d override(s) to %s\n", appliedCount, autoFixer.OverrideFilePath())
 }
 
 func indent(text, prefix string) string {

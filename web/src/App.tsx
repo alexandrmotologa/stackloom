@@ -3,8 +3,16 @@ import { TopologyCanvas } from './components/TopologyCanvas';
 import { LinterDrawer } from './components/LinterDrawer';
 import { LogViewerModal } from './components/LogViewerModal';
 import { SubGraphControls } from './components/SubGraphControls';
-import { SystemStatus, GraphData, StartupPlan, LinterResult } from './types';
-import { Box, Layers, Cpu, Radio } from 'lucide-react';
+import {
+  SystemStatus,
+  GraphData,
+  StartupPlan,
+  LinterResult,
+  BlastRadiusReport,
+  EndpointProbe,
+} from './types';
+import { Box, Layers, Cpu, Radio, Network } from 'lucide-react';
+import { toPng, toSvg } from 'html-to-image';
 
 export function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -12,6 +20,11 @@ export function App() {
   const [startupPlan, setStartupPlan] = useState<StartupPlan | null>(null);
   const [linterResult, setLinterResult] = useState<LinterResult | null>(null);
   const [metricsMap, setMetricsMap] = useState<Record<string, any>>({});
+  const [probesMap, setProbesMap] = useState<Record<string, EndpointProbe>>({});
+  const [networksList, setNetworksList] = useState<string[]>([]);
+  const [activeNetwork, setActiveNetwork] = useState<string | null>(null);
+  const [blastRadius, setBlastRadius] = useState<BlastRadiusReport | null>(null);
+
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [activeServiceForLogs, setActiveServiceForLogs] = useState<string | null>(null);
   const [isLinterOpen, setIsLinterOpen] = useState(false);
@@ -20,15 +33,27 @@ export function App() {
 
   const fetchTopology = useCallback(async () => {
     try {
-      const [statusRes, topoRes, lintRes] = await Promise.all([
+      const [statusRes, topoRes, lintRes, probesRes] = await Promise.all([
         fetch('/api/status').then((r) => r.json()),
         fetch('/api/topology').then((r) => r.json()),
         fetch('/api/lint').then((r) => r.json()),
+        fetch('/api/probes').then((r) => r.json()).catch(() => []),
       ]);
       setStatus(statusRes);
       setGraph(topoRes.graph);
       setStartupPlan(topoRes.startup_plan);
       setLinterResult(lintRes);
+
+      if (topoRes.networks?.networks) {
+        setNetworksList(Object.keys(topoRes.networks.networks));
+      }
+
+      // Map probes by service
+      const pMap: Record<string, EndpointProbe> = {};
+      (probesRes || []).forEach((p: EndpointProbe) => {
+        pMap[p.service] = p;
+      });
+      setProbesMap(pMap);
     } catch (e) {
       console.error('Failed to load topology data', e);
     }
@@ -38,7 +63,40 @@ export function App() {
     fetchTopology();
   }, [fetchTopology]);
 
-  // Connect to live stats WebSocket
+  // Connect to live reload WebSocket (/ws/events)
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/events`;
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
+
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'reload') {
+            console.log('[hot-reload] File modification detected. Re-fetching topology.');
+            fetchTopology();
+          }
+        } catch (e) {
+          console.error('Error parsing reload event', e);
+        }
+      };
+      ws.onclose = () => {
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [fetchTopology]);
+
+  // Connect to live stats WebSocket (/ws/stats)
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/stats`;
@@ -158,12 +216,46 @@ export function App() {
 
   const handleStartDatabasesOnly = () => {
     if (!graph) return;
-    const dbKeywords = ['db', 'postgres', 'mysql', 'mariadb', 'redis', 'mongo', 'memcached'];
+    const dbKeywords = ['db', 'postgres', 'mysql', 'mariadb', 'redis', 'mongo', 'memcached', 'rabbitmq'];
     const dbServices = Object.keys(graph.nodes).filter((name) =>
       dbKeywords.some((k) => name.toLowerCase().includes(k))
     );
     if (dbServices.length > 0) {
       handleRunSubgraph(dbServices, 'start');
+    }
+  };
+
+  const handleSimulateOutage = async (service: string) => {
+    if (blastRadius && blastRadius.target_service === service) {
+      setBlastRadius(null);
+      return;
+    }
+    try {
+      const report = await fetch(`/api/blast-radius?service=${encodeURIComponent(service)}`).then(
+        (r) => r.json()
+      );
+      setBlastRadius(report);
+    } catch (e) {
+      console.error('Failed to simulate outage', e);
+    }
+  };
+
+  const handleApplyFix = async (suggestedOverride: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/fix/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggested_override: suggestedOverride }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchTopology();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to apply fix', e);
+      return false;
     }
   };
 
@@ -181,6 +273,34 @@ export function App() {
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error('Failed to export HTML', e);
+    }
+  };
+
+  const handleExportPNG = async () => {
+    const el = document.querySelector('.react-flow__viewport') as HTMLElement;
+    if (!el) return;
+    try {
+      const dataUrl = await toPng(el, { backgroundColor: '#090d16', pixelRatio: 2 });
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `stackloom-diagram-${status?.project_name || 'topology'}.png`;
+      a.click();
+    } catch (e) {
+      console.error('Failed to export PNG', e);
+    }
+  };
+
+  const handleExportSVG = async () => {
+    const el = document.querySelector('.react-flow__viewport') as HTMLElement;
+    if (!el) return;
+    try {
+      const dataUrl = await toSvg(el, { backgroundColor: '#090d16' });
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `stackloom-diagram-${status?.project_name || 'topology'}.svg`;
+      a.click();
+    } catch (e) {
+      console.error('Failed to export SVG', e);
     }
   };
 
@@ -256,10 +376,17 @@ export function App() {
         allProfiles={status?.all_profiles || []}
         activeProfiles={status?.active_profiles || []}
         onToggleProfile={handleToggleProfile}
+        networks={networksList}
+        activeNetwork={activeNetwork}
+        onSelectNetwork={setActiveNetwork}
         selectedService={selectedService}
+        blastRadius={blastRadius}
+        onClearOutage={() => setBlastRadius(null)}
         onRunSubgraph={handleRunSubgraph}
         onStartDatabasesOnly={handleStartDatabasesOnly}
         onExportHTML={handleExportHTML}
+        onExportPNG={handleExportPNG}
+        onExportSVG={handleExportSVG}
         onOpenLinter={() => setIsLinterOpen(true)}
         linterResult={linterResult}
         direction={direction}
@@ -275,14 +402,18 @@ export function App() {
           startupPlan={startupPlan}
           metricsMap={metricsMap}
           collisionPorts={collisionPorts}
+          blastRadius={blastRadius}
+          activeNetwork={activeNetwork}
+          probesMap={probesMap}
           direction={direction}
           selectedService={selectedService}
           onSelectService={setSelectedService}
           onOpenLogs={(s) => setActiveServiceForLogs(s)}
           onRestartService={handleRestartService}
+          onSimulateOutage={handleSimulateOutage}
         />
 
-        {/* Linter Slide-over Drawer */}
+        {/* Linter Slide-over Drawer with 1-Click Fix */}
         <LinterDrawer
           isOpen={isLinterOpen}
           onClose={() => setIsLinterOpen(false)}
@@ -291,6 +422,7 @@ export function App() {
             setSelectedService(s);
             setIsLinterOpen(false);
           }}
+          onApplyFix={handleApplyFix}
         />
 
         {/* Live Container Log Modal */}
@@ -306,6 +438,11 @@ export function App() {
           <span>Files: {(status?.compose_files || []).join(', ')}</span>
           {selectedService && (
             <span className="text-blue-400">Selected: {selectedService}</span>
+          )}
+          {activeNetwork && (
+            <span className="text-emerald-400 flex items-center gap-1">
+              <Network className="w-3 h-3" /> Network Filter: {activeNetwork}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-3">

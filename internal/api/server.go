@@ -15,8 +15,11 @@ import (
 	"github.com/alexandrmotologa/stackloom/internal/config"
 	"github.com/alexandrmotologa/stackloom/internal/docker"
 	"github.com/alexandrmotologa/stackloom/internal/export"
+	"github.com/alexandrmotologa/stackloom/internal/fixer"
 	"github.com/alexandrmotologa/stackloom/internal/graph"
 	"github.com/alexandrmotologa/stackloom/internal/linter"
+	"github.com/alexandrmotologa/stackloom/internal/prober"
+	"github.com/alexandrmotologa/stackloom/internal/watcher"
 	"github.com/gorilla/websocket"
 )
 
@@ -27,6 +30,8 @@ type Server struct {
 	merger         *compose.Merger
 	linter         *linter.Linter
 	dockerClient   *docker.Client
+	fileWatcher    *watcher.FileWatcher
+	watcherCancel  context.CancelFunc
 	basePath       string
 	mu             sync.RWMutex
 	rawCompose     *compose.ComposeConfig
@@ -34,10 +39,13 @@ type Server struct {
 	cachedGraph    *graph.Graph
 	cachedPlan     *graph.StartupPlan
 	cachedLinter   *linter.Result
+	cachedNetworks *graph.NetworkTopology
 	allProfiles    []string
 	activeProfiles []string
 	unsetEnvs      []string
 	upgrader       websocket.Upgrader
+	eventClients   map[*websocket.Conn]bool
+	eventClientsMu sync.Mutex
 }
 
 // NewServer initializes the API server with parsed compose state.
@@ -50,17 +58,57 @@ func NewServer(cfg *config.Config, dockerClient *docker.Client) (*Server, error)
 		dockerClient: dockerClient,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all local origins
+				return true
 			},
 		},
 		activeProfiles: cfg.ActiveProfiles,
+		eventClients:   make(map[*websocket.Conn]bool),
 	}
 
 	if err := s.Reload(); err != nil {
 		return nil, err
 	}
 
+	// Initialize file watcher for instant live reload
+	s.initWatcher()
+
 	return s, nil
+}
+
+func (s *Server) initWatcher() {
+	if len(s.cfg.ComposeFiles) == 0 {
+		return
+	}
+
+	watchPaths := append([]string{}, s.cfg.ComposeFiles...)
+	dotEnvPath := filepath.Join(s.basePath, ".env")
+	if _, err := os.Stat(dotEnvPath); err == nil {
+		watchPaths = append(watchPaths, dotEnvPath)
+	}
+	overridePath := filepath.Join(s.basePath, "docker-compose.override.yml")
+	watchPaths = append(watchPaths, overridePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.watcherCancel = cancel
+
+	s.fileWatcher = watcher.NewFileWatcher(watchPaths, 500*time.Millisecond, func() {
+		fmt.Println("[watcher] Compose or environment file change detected. Reloading topology...")
+		if err := s.Reload(); err == nil {
+			s.broadcastEvent(map[string]interface{}{
+				"event":     "reload",
+				"timestamp": time.Now().Format(time.RFC3339),
+			})
+		}
+	})
+
+	go s.fileWatcher.Start(ctx)
+}
+
+// Close gracefully terminates background watchers.
+func (s *Server) Close() {
+	if s.watcherCancel != nil {
+		s.watcherCancel()
+	}
 }
 
 // Reload parses all configured Compose files and recomputes the topology and linter.
@@ -80,7 +128,6 @@ func (s *Server) Reload() error {
 	for i, file := range s.cfg.ComposeFiles {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
 			if i > 0 {
-				// Optional overrides may not exist
 				continue
 			}
 			return fmt.Errorf("compose file %s not found", file)
@@ -134,6 +181,9 @@ func (s *Server) Reload() error {
 	plan, _ := graph.ComputeStartupPlan(g)
 	s.cachedPlan = plan
 
+	// Compute Network Topology
+	s.cachedNetworks = graph.ComputeNetworkTopology(filtered)
+
 	// Run Linter
 	linterResult := s.linter.Lint(filtered, g, s.unsetEnvs, s.basePath)
 	s.cachedLinter = linterResult
@@ -151,11 +201,15 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux, staticFS http.FileSystem) {
 	mux.HandleFunc("/api/profiles/active", s.handleActiveProfiles)
 	mux.HandleFunc("/api/actions/service", s.handleServiceAction)
 	mux.HandleFunc("/api/actions/subgraph", s.handleSubGraphAction)
+	mux.HandleFunc("/api/blast-radius", s.handleBlastRadius)
+	mux.HandleFunc("/api/fix/apply", s.handleApplyFix)
+	mux.HandleFunc("/api/probes", s.handleProbes)
 	mux.HandleFunc("/api/export", s.handleExportHTML)
 
 	// WebSockets
 	mux.HandleFunc("/ws/stats", s.handleWSStats)
 	mux.HandleFunc("/ws/logs", s.handleWSLogs)
+	mux.HandleFunc("/ws/events", s.handleWSEvents)
 
 	// Static SPA Serving
 	if staticFS != nil {
@@ -165,10 +219,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux, staticFS http.FileSystem) {
 				http.NotFound(w, r)
 				return
 			}
-			// Check if file exists in staticFS, otherwise fallback to index.html
 			f, err := staticFS.Open(r.URL.Path)
 			if err != nil {
-				// Fallback to index.html for SPA routing
 				r.URL.Path = "/"
 			} else {
 				_ = f.Close()
@@ -211,6 +263,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"graph":           s.cachedGraph,
 		"startup_plan":    s.cachedPlan,
+		"networks":        s.cachedNetworks,
 		"all_profiles":    s.allProfiles,
 		"active_profiles": s.activeProfiles,
 		"compose":         s.cachedCompose,
@@ -247,6 +300,82 @@ func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, containers)
 }
 
+func (s *Server) handleBlastRadius(w http.ResponseWriter, r *http.Request) {
+	service := r.URL.Query().Get("service")
+	if service == "" {
+		writeError(w, http.StatusBadRequest, "missing 'service' query parameter")
+		return
+	}
+
+	s.mu.RLock()
+	g := s.cachedGraph
+	s.mu.RUnlock()
+
+	if g == nil {
+		writeError(w, http.StatusInternalServerError, "graph not loaded")
+		return
+	}
+
+	report := g.CalculateBlastRadius(service)
+	writeJSON(w, http.StatusOK, report)
+}
+
+type applyFixRequest struct {
+	SuggestedOverride string `json:"suggested_override"`
+}
+
+func (s *Server) handleApplyFix(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req applyFixRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	s.mu.RLock()
+	basePath := s.basePath
+	s.mu.RUnlock()
+
+	autoFixer := fixer.NewAutoFixer(basePath)
+	msg, err := autoFixer.ApplyOverride(req.SuggestedOverride)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to apply override: %v", err))
+		return
+	}
+
+	// Trigger immediate reload
+	if err := s.Reload(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Applied but reload failed: %v", err))
+		return
+	}
+
+	s.broadcastEvent(map[string]interface{}{
+		"event":     "reload",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": msg,
+	})
+}
+
+func (s *Server) handleProbes(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	cfg := s.cachedCompose
+	s.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	probes := prober.ProbePublishedEndpoints(ctx, cfg)
+	writeJSON(w, http.StatusOK, probes)
+}
+
 type activeProfilesRequest struct {
 	Profiles []string `json:"profiles"`
 }
@@ -271,6 +400,11 @@ func (s *Server) handleActiveProfiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	s.broadcastEvent(map[string]interface{}{
+		"event":     "reload",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -383,7 +517,6 @@ func (s *Server) handleSubGraphAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate sub-graph
 	sub := g.SubGraph(req.Services, req.Upstream, false)
 	plan, err := graph.ComputeStartupPlan(sub)
 	if err != nil {
@@ -417,6 +550,40 @@ func (s *Server) handleExportHTML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(html))
+}
+
+func (s *Server) handleWSEvents(w http.ResponseWriter, r *http.Request) {
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	s.eventClientsMu.Lock()
+	s.eventClients[conn] = true
+	s.eventClientsMu.Unlock()
+
+	defer func() {
+		s.eventClientsMu.Lock()
+		delete(s.eventClients, conn)
+		s.eventClientsMu.Unlock()
+	}()
+
+	// Keep alive reader
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			break
+		}
+	}
+}
+
+func (s *Server) broadcastEvent(payload interface{}) {
+	s.eventClientsMu.Lock()
+	defer s.eventClientsMu.Unlock()
+
+	for conn := range s.eventClients {
+		_ = conn.WriteJSON(payload)
+	}
 }
 
 func (s *Server) handleWSStats(w http.ResponseWriter, r *http.Request) {

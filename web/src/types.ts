@@ -6,6 +6,38 @@ export interface PortMapping {
   raw: string;
 }
 
+export interface EndpointProbe {
+  service: string;
+  port: number;
+  url: string;
+  is_http: boolean;
+  status_code?: number;
+  status_text?: string;
+  latency_ms: number;
+  live: boolean;
+}
+
+export interface BlastRadiusReport {
+  target_service: string;
+  total_services: number;
+  affected_count: number;
+  blast_radius_ratio: number;
+  impact_tree: Array<{
+    service: string;
+    depth: number;
+    direct_cause: string;
+    condition: string;
+    severity: 'FATAL' | 'DEGRADED';
+  }>;
+  unaffected: string[];
+}
+
+export interface NetworkTopology {
+  networks: Record<string, string[]>;
+  visibility_matrix: Record<string, string[]>;
+  isolated_services: string[];
+}
+
 export interface ServiceNodeData {
   [key: string]: unknown;
   id: string;
@@ -29,7 +61,13 @@ export interface ServiceNodeData {
     state?: string;
     health?: string;
   };
+  probe?: EndpointProbe;
   hasPortCollision?: boolean;
+  isOutageTarget?: boolean;
+  isOutageImpacted?: boolean;
+  outageDepth?: number;
+  outageSeverity?: 'FATAL' | 'DEGRADED';
+  isDimmed?: boolean;
 }
 
 export interface GraphEdge {

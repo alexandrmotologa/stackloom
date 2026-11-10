@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { LinterResult, LinterFinding } from '../types';
-import { X, AlertCircle, AlertTriangle, ShieldAlert, CheckCircle, Copy, Check } from 'lucide-react';
+import { X, AlertCircle, AlertTriangle, ShieldAlert, CheckCircle, Copy, Check, Wrench } from 'lucide-react';
 
 interface LinterDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   result: LinterResult | null;
   onSelectService: (service: string) => void;
+  onApplyFix?: (suggestedOverride: string) => Promise<boolean>;
 }
 
 export const LinterDrawer: React.FC<LinterDrawerProps> = ({
@@ -14,9 +15,12 @@ export const LinterDrawer: React.FC<LinterDrawerProps> = ({
   onClose,
   result,
   onSelectService,
+  onApplyFix,
 }) => {
   const [filter, setFilter] = useState<'ALL' | 'CRITICAL' | 'WARNING' | 'SECURITY'>('ALL');
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
+  const [appliedIdx, setAppliedIdx] = useState<number | null>(null);
 
   if (!isOpen) return null;
 
@@ -30,6 +34,17 @@ export const LinterDrawer: React.FC<LinterDrawerProps> = ({
     navigator.clipboard.writeText(code);
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
+  };
+
+  const handleApply = async (snippet: string, idx: number) => {
+    if (!onApplyFix) return;
+    setApplyingIdx(idx);
+    const ok = await onApplyFix(snippet);
+    setApplyingIdx(null);
+    if (ok) {
+      setAppliedIdx(idx);
+      setTimeout(() => setAppliedIdx(null), 3000);
+    }
   };
 
   return (
@@ -52,7 +67,7 @@ export const LinterDrawer: React.FC<LinterDrawerProps> = ({
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Static validation before running docker compose up
+            Static validation & 1-click auto-fixer
           </p>
         </div>
 
@@ -134,7 +149,7 @@ export const LinterDrawer: React.FC<LinterDrawerProps> = ({
             return (
               <div
                 key={idx}
-                className={`p-3.5 rounded-xl border text-xs space-y-2 transition-all ${
+                className={`p-3.5 rounded-xl border text-xs space-y-2.5 transition-all ${
                   isCrit
                     ? 'bg-red-950/20 border-red-900/60'
                     : isWarn
@@ -182,27 +197,48 @@ export const LinterDrawer: React.FC<LinterDrawerProps> = ({
                   </span>
                 </div>
 
-                {/* Suggested Override */}
+                {/* Suggested Override & 1-Click Fix */}
                 {f.suggested_override && (
-                  <div className="space-y-1">
+                  <div className="space-y-1.5 pt-1">
                     <div className="flex items-center justify-between text-[10px] text-slate-400">
                       <span>Suggested Override Snippet</span>
-                      <button
-                        onClick={() => handleCopyOverride(f.suggested_override!, idx)}
-                        className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors"
-                      >
-                        {copiedIdx === idx ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" /> Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" /> Copy YAML
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleCopyOverride(f.suggested_override!, idx)}
+                          className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors"
+                        >
+                          {copiedIdx === idx ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" /> Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" /> Copy
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => handleApply(f.suggested_override!, idx)}
+                          disabled={applyingIdx === idx}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium transition-colors"
+                          title="Apply this snippet directly into docker-compose.override.yml"
+                        >
+                          {appliedIdx === idx ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-300" /> Applied!
+                            </>
+                          ) : applyingIdx === idx ? (
+                            <span>Applying...</span>
+                          ) : (
+                            <>
+                              <Wrench className="w-3 h-3" /> Apply Fix
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <pre className="p-2 rounded bg-black/60 border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto">
+                    <pre className="p-2.5 rounded bg-black/60 border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto">
                       <code>{f.suggested_override}</code>
                     </pre>
                   </div>

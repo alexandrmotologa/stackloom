@@ -13,32 +13,40 @@ import {
 } from '@xyflow/react';
 import dagre from '@dagrejs/dagre';
 import { ServiceNode } from './ServiceNode';
-import { GraphData, StartupPlan } from '../types';
+import { GraphData, StartupPlan, BlastRadiusReport, EndpointProbe } from '../types';
 
 interface TopologyCanvasProps {
   graph: GraphData | null;
   startupPlan: StartupPlan | null;
   metricsMap: Record<string, any>;
   collisionPorts: Set<number>;
+  blastRadius: BlastRadiusReport | null;
+  activeNetwork: string | null;
+  probesMap: Record<string, EndpointProbe>;
   direction?: 'LR' | 'TB';
   selectedService: string | null;
   onSelectService: (service: string | null) => void;
   onOpenLogs: (service: string) => void;
   onRestartService: (service: string) => void;
+  onSimulateOutage: (service: string) => void;
 }
 
 const nodeWidth = 300;
-const nodeHeight = 220;
+const nodeHeight = 250;
 
 export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
   graph,
   metricsMap,
   collisionPorts,
+  blastRadius,
+  activeNetwork,
+  probesMap,
   direction = 'LR',
   selectedService,
   onSelectService,
   onOpenLogs,
   onRestartService,
+  onSimulateOutage,
 }) => {
   const nodeTypes = useMemo(() => ({ serviceNode: ServiceNode }), []);
 
@@ -64,27 +72,51 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
       dagreGraph.setNode(n.id, { width: nodeWidth, height: nodeHeight });
     });
 
-    // Add edges to dagre
-    // Edge is from dependent (From) -> dependency (To)
-    // In visual layout, dependency is upstream (to the left/top), dependent is downstream (to the right/bottom)
+    // Add edges to dagre (flow from dependency to dependent)
     (graph.edges || []).forEach((e) => {
       dagreGraph.setEdge(e.to, e.from);
     });
 
     dagre.layout(dagreGraph);
 
+    // Map of blast radius impacts
+    const impactMap = new Map<string, { depth: number; severity: 'FATAL' | 'DEGRADED' }>();
+    if (blastRadius) {
+      (blastRadius.impact_tree || []).forEach((it) => {
+        impactMap.set(it.service, { depth: it.depth, severity: it.severity });
+      });
+    }
+
     // Build React Flow nodes
     const flowNodes: Node[] = Object.values(graph.nodes).map((n) => {
       const nodePos = dagreGraph.node(n.id);
       const metrics = metricsMap[n.name];
+      const probe = probesMap[n.name];
 
-      // Check if service has any collision ports
+      // Check collision ports
       let hasPortCollision = false;
       (n.ports || []).forEach((p) => {
         if (p.published && collisionPorts.has(p.published)) {
           hasPortCollision = true;
         }
       });
+
+      // Blast radius state
+      const isOutageTarget = blastRadius?.target_service === n.name;
+      const impact = impactMap.get(n.name);
+      const isOutageImpacted = Boolean(impact);
+
+      // Network filter dimming
+      let isDimmed = false;
+      if (activeNetwork) {
+        const nets = n.networks || ['default'];
+        if (!nets.includes(activeNetwork)) {
+          isDimmed = true;
+        }
+      }
+      if (blastRadius && !isOutageTarget && !isOutageImpacted) {
+        isDimmed = true;
+      }
 
       return {
         id: n.id,
@@ -96,9 +128,16 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
         data: {
           ...n,
           metrics,
+          probe,
           hasPortCollision,
+          isOutageTarget,
+          isOutageImpacted,
+          outageDepth: impact?.depth,
+          outageSeverity: impact?.severity,
+          isDimmed,
           onOpenLogs,
           onRestart: onRestartService,
+          onSimulateOutage,
         },
         selected: selectedService === n.id,
         targetPosition: isHorizontal ? Position.Left : Position.Top,
@@ -109,22 +148,27 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
     // Build React Flow edges
     const flowEdges: Edge[] = (graph.edges || []).map((e, idx) => {
       const isHealthyCond = e.condition === 'service_healthy';
+      const isImpactedEdge =
+        blastRadius &&
+        (e.to === blastRadius.target_service || impactMap.has(e.to)) &&
+        impactMap.has(e.from);
+
       return {
         id: `e-${e.from}-${e.to}-${idx}`,
-        source: e.to, // Flow from dependency -> dependent
+        source: e.to,
         target: e.from,
-        animated: isHealthyCond,
+        animated: isHealthyCond || Boolean(isImpactedEdge),
         type: ConnectionLineType.SmoothStep,
         style: {
-          stroke: isHealthyCond ? '#10b981' : '#3b82f6',
-          strokeWidth: 2,
+          stroke: isImpactedEdge ? '#ef4444' : isHealthyCond ? '#10b981' : '#3b82f6',
+          strokeWidth: isImpactedEdge ? 3 : 2,
         },
-        label: isHealthyCond ? 'healthy' : undefined,
-        labelStyle: { fill: '#94a3b8', fontSize: 10, fontWeight: 500 },
-        labelBgStyle: { fill: '#0f172a', rx: 4, ry: 4 },
+        label: isImpactedEdge ? 'CRASH RISK' : isHealthyCond ? 'healthy' : undefined,
+        labelStyle: { fill: isImpactedEdge ? '#fca5a5' : '#94a3b8', fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: isImpactedEdge ? '#450a0a' : '#0f172a', rx: 4, ry: 4 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isHealthyCond ? '#10b981' : '#3b82f6',
+          color: isImpactedEdge ? '#ef4444' : isHealthyCond ? '#10b981' : '#3b82f6',
           width: 14,
           height: 14,
         },
@@ -136,14 +180,18 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
     graph,
     metricsMap,
     collisionPorts,
+    blastRadius,
+    activeNetwork,
+    probesMap,
     direction,
     selectedService,
     onOpenLogs,
     onRestartService,
+    onSimulateOutage,
   ]);
 
   return (
-    <div className="w-full h-full relative bg-[#090d16]">
+    <div className="w-full h-full relative bg-[#090d16]" id="topology-canvas-container">
       <ReactFlow
         nodes={nodes}
         edges={edges}

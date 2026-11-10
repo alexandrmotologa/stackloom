@@ -1,12 +1,22 @@
 import React from 'react';
 import { Handle, Position, NodeProps, Node } from '@xyflow/react';
 import { ServiceNodeData } from '../types';
-import { Activity, AlertTriangle, CheckCircle2, RotateCw, Terminal, ShieldAlert } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  RotateCw,
+  Terminal,
+  ShieldAlert,
+  ExternalLink,
+  Flame,
+} from 'lucide-react';
 
 export type ServiceNodeType = Node<
   ServiceNodeData & {
     onOpenLogs?: (service: string) => void;
     onRestart?: (service: string) => void;
+    onSimulateOutage?: (service: string) => void;
   },
   'serviceNode'
 >;
@@ -20,10 +30,22 @@ export const ServiceNode: React.FC<NodeProps<ServiceNodeType>> = ({ data, select
   const memLimitMB = data.metrics?.memory_limit_mb ?? 0;
   const memPercent = data.metrics?.memory_percent ?? 0;
 
+  const isTarget = data.isOutageTarget;
+  const isImpacted = data.isOutageImpacted;
+  const isDimmed = data.isDimmed;
+
   return (
     <div
-      className={`w-72 bg-[#111827] border rounded-xl p-3.5 shadow-xl transition-all duration-200 select-none ${
-        selected
+      className={`w-72 bg-[#111827] border rounded-xl p-3.5 shadow-xl transition-all duration-300 select-none ${
+        isDimmed
+          ? 'opacity-25 grayscale'
+          : isTarget
+          ? 'border-red-500 ring-4 ring-red-500/30 bg-red-950/30 scale-105'
+          : isImpacted
+          ? data.outageSeverity === 'FATAL'
+            ? 'border-red-500/80 bg-red-950/20 ring-2 ring-red-500/20'
+            : 'border-amber-500/80 bg-amber-950/20 ring-2 ring-amber-500/20'
+          : selected
           ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-blue-500/10'
           : data.hasPortCollision
           ? 'border-red-500/60 bg-red-950/10'
@@ -37,12 +59,37 @@ export const ServiceNode: React.FC<NodeProps<ServiceNodeType>> = ({ data, select
         className="!bg-blue-500 !border-2 !border-[#090d16]"
       />
 
+      {/* Outage Simulation Banner */}
+      {isTarget && (
+        <div className="bg-red-500/20 border border-red-500/40 text-red-300 font-mono text-[10px] px-2 py-0.5 rounded mb-2 flex items-center justify-between font-bold animate-pulse">
+          <span className="flex items-center gap-1">
+            <Flame className="w-3 h-3 text-red-400" /> OUTAGE ROOT
+          </span>
+          <span>Target</span>
+        </div>
+      )}
+
+      {isImpacted && (
+        <div
+          className={`border font-mono text-[10px] px-2 py-0.5 rounded mb-2 flex items-center justify-between font-bold ${
+            data.outageSeverity === 'FATAL'
+              ? 'bg-red-950/40 border-red-800 text-red-300'
+              : 'bg-amber-950/40 border-amber-800 text-amber-300'
+          }`}
+        >
+          <span>Cascade L{data.outageDepth}</span>
+          <span className="uppercase text-[9px]">{data.outageSeverity}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <div
             className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-              isRunning
+              isTarget
+                ? 'bg-red-500 animate-ping'
+                : isRunning
                 ? isHealthy
                   ? 'bg-emerald-400 animate-pulse'
                   : isUnhealthy
@@ -76,9 +123,33 @@ export const ServiceNode: React.FC<NodeProps<ServiceNodeType>> = ({ data, select
       </div>
 
       {/* Image / Build context */}
-      <div className="text-[11px] text-slate-400 truncate mb-3 font-mono bg-slate-900/60 px-2 py-1 rounded border border-slate-800/80">
+      <div className="text-[11px] text-slate-400 truncate mb-2.5 font-mono bg-slate-900/60 px-2 py-1 rounded border border-slate-800/80">
         {data.image || 'Local Dockerfile'}
       </div>
+
+      {/* Smart HTTP Web Link Probe (if live) */}
+      {data.probe && (
+        <div className="mb-2.5 flex items-center justify-between bg-blue-950/20 border border-blue-800/40 px-2 py-1 rounded text-[11px]">
+          <a
+            href={data.probe.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 text-blue-400 hover:text-blue-300 font-mono truncate max-w-[170px]"
+            title={`Open ${data.probe.url}`}
+          >
+            <ExternalLink className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">{data.probe.url}</span>
+          </a>
+          <span
+            className={`text-[10px] font-mono px-1 rounded ${
+              data.probe.live ? 'text-emerald-300' : 'text-slate-500'
+            }`}
+          >
+            {data.probe.live ? `${data.probe.status_code || 200} (${data.probe.latency_ms}ms)` : 'offline'}
+          </span>
+        </div>
+      )}
 
       {/* Real-time Metrics (if running) */}
       {isRunning ? (
@@ -149,27 +220,45 @@ export const ServiceNode: React.FC<NodeProps<ServiceNodeType>> = ({ data, select
       </div>
 
       {/* Actions Toolbar */}
-      <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-slate-800/80">
+      <div className="flex items-center justify-between gap-1 pt-2 border-t border-slate-800/80">
         <button
           onClick={(e) => {
             e.stopPropagation();
-            data.onOpenLogs?.(data.name);
+            data.onSimulateOutage?.(data.name);
           }}
-          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          title="Live Container Logs"
+          className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded transition-colors ${
+            isTarget
+              ? 'bg-red-600 text-white'
+              : 'bg-slate-800 hover:bg-red-950 hover:text-red-300 text-slate-400'
+          }`}
+          title="Simulate service failure & cascading blast radius"
         >
-          <Terminal className="w-3 h-3" /> Logs
+          <Flame className="w-3 h-3" />
+          {isTarget ? 'Clear' : 'What-If'}
         </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            data.onRestart?.(data.name);
-          }}
-          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          title="Restart Container"
-        >
-          <RotateCw className="w-3 h-3" /> Restart
-        </button>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onOpenLogs?.(data.name);
+            }}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            title="Live Container Logs"
+          >
+            <Terminal className="w-3 h-3" /> Logs
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onRestart?.(data.name);
+            }}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            title="Restart Container"
+          >
+            <RotateCw className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       {/* Outbound Handle */}
