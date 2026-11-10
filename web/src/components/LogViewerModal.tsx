@@ -61,8 +61,8 @@ export const LogViewerModal: React.FC<LogViewerModalProps> = ({ service, onClose
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
-      <div className="w-full max-w-4xl h-[650px] bg-[#0c1017] border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-6">
+      <div className="w-full max-w-4xl h-[90vh] sm:h-[650px] bg-[#0c1017] border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-3.5 border-b border-slate-800/80 bg-[#111827] flex items-center justify-between">
           <div className="flex items-center gap-2">

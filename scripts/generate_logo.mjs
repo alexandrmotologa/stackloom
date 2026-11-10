@@ -1,0 +1,289 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Resolve @resvg/resvg-js
+let Resvg;
+try {
+  const mod = await import('@resvg/resvg-js');
+  Resvg = mod.Resvg;
+} catch (e) {
+  try {
+    const mod = await import('B:/workgit/node_modules/@resvg/resvg-js/index.js');
+    Resvg = mod.Resvg;
+  } catch (err) {
+    console.error('Could not load Resvg:', err);
+    process.exit(1);
+  }
+}
+
+function buildLogoSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="squircle-clip">
+      <rect x="24" y="24" width="976" height="976" rx="220" />
+    </clipPath>
+
+    <!-- Electric Cyan Telemetry Gradients -->
+    <linearGradient id="cyan-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <linearGradient id="cyan-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#00f5ff"/>
+    </linearGradient>
+
+    <!-- Obsidian & Slate Low-Poly Facet Gradients -->
+    <linearGradient id="facet-bright" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#64748b"/>
+      <stop offset="100%" stop-color="#475569"/>
+    </linearGradient>
+
+    <linearGradient id="facet-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+
+    <linearGradient id="facet-mid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+
+    <linearGradient id="facet-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <linearGradient id="facet-deep" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#080d1a"/>
+    </linearGradient>
+
+    <!-- Raptor Beak Gold Gradients -->
+    <linearGradient id="beak-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="40%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+
+    <linearGradient id="beak-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="60%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#78350f"/>
+    </linearGradient>
+
+    <filter id="subtle-shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.16" />
+    </filter>
+  </defs>
+
+  <!-- Luxury White Squircle Container -->
+  <rect x="24" y="24" width="976" height="976" rx="220" fill="#ffffff" stroke="#e2e8f0" stroke-width="6" />
+
+  <g clip-path="url(#squircle-clip)">
+    <g transform="translate(512, 516)" filter="url(#subtle-shadow)">
+
+      <!-- Hexagonal Architectural Gateway Frame -->
+      <polygon points="
+        0,-390
+        338,-195
+        338,195
+        0,390
+        -338,195
+        -338,-195
+      " fill="none" stroke="#0f172a" stroke-width="36" stroke-linejoin="round" />
+
+      <!-- Inner High-Tech Telemetry Dashed Hexagon -->
+      <polygon points="
+        0,-355
+        307,-177
+        307,177
+        0,355
+        -307,177
+        -307,-177
+      " fill="none" stroke="#00f5ff" stroke-width="4" opacity="0.4" stroke-dasharray="16, 12" />
+
+      <!-- High-Tech Axis Crosshairs -->
+      <line x1="-315" y1="0" x2="-295" y2="0" stroke="#00f5ff" stroke-width="2" opacity="0.6" />
+      <line x1="295" y1="0" x2="315" y2="0" stroke="#00f5ff" stroke-width="2" opacity="0.6" />
+
+      <!-- 100% WATERTIGHT SOLID SILHOUETTE BASE (Zero-Leak Rule) -->
+      <path d="
+        M 0,-280
+        L -35,-265 L -75,-245 L -100,-200 L -120,-130
+        L -180,-85 L -265,-10 L -280,60 L -250,150 L -190,230 L -115,285
+        L -45,260 L 0,335 L 45,260 L 115,285 L 190,230 L 250,150
+        L 280,60 L 265,-10 L 180,-85 L 120,-130 L 100,-200
+        L 75,-245 L 35,-265
+        Z
+      " fill="#070b14" />
+
+      <!-- ================= PEREGRINE CROWN CREST ================= -->
+      <polygon points="0,-280 -35,-265 0,-225" fill="url(#facet-bright)" />
+      <polygon points="0,-280 35,-265 0,-225" fill="url(#facet-light)" />
+      <polygon points="-35,-265 -75,-245 -45,-215 0,-225" fill="url(#facet-mid)" />
+      <polygon points="35,-265 75,-245 45,-215 0,-225" fill="url(#facet-dark)" />
+      <polygon points="-75,-245 -100,-200 -55,-190 -45,-215" fill="url(#facet-dark)" />
+      <polygon points="75,-245 100,-200 55,-190 45,-215" fill="url(#facet-deep)" />
+
+      <!-- ================= FOREHEAD & SUPRAORBITAL BROW ================= -->
+      <polygon points="0,-225 -45,-215 -30,-175 0,-175" fill="url(#facet-light)" />
+      <polygon points="0,-225 45,-215 30,-175 0,-175" fill="url(#facet-mid)" />
+      <polygon points="-45,-215 -55,-190 -95,-175 -50,-165 -30,-175" fill="url(#facet-dark)" />
+      <polygon points="45,-215 55,-190 95,-175 50,-165 30,-175" fill="url(#facet-mid)" />
+
+      <!-- Falcon Brow Ridge (Aggressive Predator Canopy) -->
+      <polygon points="-95,-175 -50,-165 -65,-155 -105,-162" fill="#0b0f19" />
+      <polygon points="95,-175 50,-165 65,-155 105,-162" fill="#0f172a" />
+
+      <!-- ================= RAPTOR EYES (Alert Predatory Almonds) ================= -->
+      <!-- Left Eye Cavity & Iris -->
+      <polygon points="-92,-170 -55,-160 -70,-150 -100,-160" fill="#050811" />
+      <polygon points="-88,-168 -58,-161 -72,-152 -95,-161" fill="url(#cyan-glow)" />
+      <polygon points="-78,-164 -66,-161 -73,-156 -81,-161" fill="#ffffff" opacity="0.9" />
+
+      <!-- Right Eye Cavity & Iris -->
+      <polygon points="92,-170 55,-160 70,-150 100,-160" fill="#050811" />
+      <polygon points="88,-168 58,-161 72,-152 95,-161" fill="url(#cyan-glow)" />
+      <polygon points="78,-164 66,-161 73,-156 81,-161" fill="#ffffff" opacity="0.9" />
+
+      <!-- ================= CERE (Golden Base of Beak) ================= -->
+      <polygon points="0,-175 -28,-150 0,-140" fill="url(#beak-light)" />
+      <polygon points="0,-175 28,-150 0,-140" fill="url(#beak-dark)" />
+
+      <!-- ================= HOOKED PREDATORY BEAK (With Tomial Tooth) ================= -->
+      <!-- Left Upper Beak Mandible -->
+      <polygon points="0,-140 -28,-150 -18,-115 0,-85" fill="url(#beak-light)" />
+      <!-- Right Upper Beak Mandible (Shadow) -->
+      <polygon points="0,-140 28,-150 18,-115 0,-85" fill="url(#beak-dark)" />
+      <!-- Tomial Tooth Accents (Peregrine Mandibular Notch) -->
+      <polygon points="-28,-150 -18,-115 -35,-130" fill="url(#beak-dark)" />
+      <polygon points="28,-150 18,-115 35,-130" fill="#78350f" />
+      <!-- Hook Apex Chisel Tip -->
+      <polygon points="0,-85 -6,-105 0,-115 6,-105" fill="#0f172a" />
+
+      <!-- ================= PEREGRINE MALAR HOOD / MUSTACHE STRIPES ================= -->
+      <!-- Distinctive dark raptor side-helmet plumes -->
+      <polygon points="-100,-160 -70,-150 -60,-120 -115,-110" fill="url(#facet-deep)" />
+      <polygon points="-115,-110 -60,-120 -40,-90 -95,-75" fill="url(#facet-dark)" />
+      <polygon points="-95,-75 -40,-90 -30,-60 -80,-45" fill="url(#facet-deep)" />
+
+      <polygon points="100,-160 70,-150 60,-120 115,-110" fill="url(#facet-dark)" />
+      <polygon points="115,-110 60,-120 40,-90 95,-75" fill="url(#facet-mid)" />
+      <polygon points="95,-75 40,-90 30,-60 80,-45" fill="url(#facet-dark)" />
+
+      <!-- ================= THROAT SHIELD & GULAR APERTURE ================= -->
+      <polygon points="0,-85 -20,-80 -30,-60 0,-35" fill="url(#facet-light)" />
+      <polygon points="0,-85 20,-80 30,-60 0,-35" fill="url(#facet-mid)" />
+
+      <!-- ================= CHEST STERNUM & TOPOLOGY ENGINE CORE ================= -->
+      <!-- Upper Breastplate -->
+      <polygon points="0,-35 -30,-60 -80,-45 -95,20 0,25" fill="url(#facet-mid)" />
+      <polygon points="0,-35 30,-60 80,-45 95,20 0,25" fill="url(#facet-light)" />
+
+      <!-- Central DAG Core Aperture (Illuminated Orchestrator Prism) -->
+      <polygon points="0,5 -55,55 0,115 55,55" fill="#070b14" stroke="#00f5ff" stroke-width="2.5" />
+      <polygon points="0,15 -42,55 0,98 42,55" fill="url(#facet-deep)" />
+      <polygon points="0,25 -28,55 0,85 28,55" fill="url(#cyan-glow)" />
+      <polygon points="0,38 -15,55 0,72 15,55" fill="#ffffff" opacity="0.9" />
+
+      <!-- Core Telemetry Connecting Vectors (Graph Edges) -->
+      <line x1="-55" y1="55" x2="-120" y2="40" stroke="#00f5ff" stroke-width="2" opacity="0.6" stroke-dasharray="6,4" />
+      <line x1="55" y1="55" x2="120" y2="40" stroke="#00f5ff" stroke-width="2" opacity="0.6" stroke-dasharray="6,4" />
+      <line x1="0" y1="115" x2="0" y2="180" stroke="#00f5ff" stroke-width="2" opacity="0.6" />
+
+      <!-- ================= PRIMARY WINGS / TOPOLOGY DAG FACETS ================= -->
+      <!-- Left Shoulder Epaulets -->
+      <polygon points="-120,-130 -180,-85 -140,-50 -95,-75" fill="url(#facet-dark)" />
+      <polygon points="-180,-85 -265,-10 -205,10 -140,-50" fill="url(#facet-deep)" />
+      <polygon points="-140,-50 -205,10 -150,45 -95,20" fill="url(#facet-mid)" />
+
+      <!-- Right Shoulder Epaulets -->
+      <polygon points="120,-130 180,-85 140,-50 95,-75" fill="url(#facet-mid)" />
+      <polygon points="180,-85 265,-10 205,10 140,-50" fill="url(#facet-light)" />
+      <polygon points="140,-50 205,10 150,45 95,20" fill="url(#facet-bright)" />
+
+      <!-- Left Mid-Wing Primary Plumes (Faceted DAG Hierarchy) -->
+      <polygon points="-265,-10 -280,60 -215,80 -205,10" fill="url(#facet-dark)" />
+      <polygon points="-205,10 -215,80 -155,105 -150,45" fill="url(#facet-mid)" />
+      <polygon points="-150,45 -155,105 -105,120 -95,20" fill="url(#facet-light)" />
+
+      <!-- Right Mid-Wing Primary Plumes -->
+      <polygon points="265,-10 280,60 215,80 205,10" fill="url(#facet-mid)" />
+      <polygon points="205,10 215,80 155,105 150,45" fill="url(#facet-bright)" />
+      <polygon points="150,45 155,105 105,120 95,20" fill="url(#facet-light)" />
+
+      <!-- Left Lower Wing Sweeps (Aerodynamic Dive Vectors) -->
+      <polygon points="-280,60 -250,150 -195,155 -215,80" fill="url(#facet-deep)" />
+      <polygon points="-215,80 -195,155 -145,175 -155,105" fill="url(#facet-dark)" />
+      <polygon points="-155,105 -145,175 -90,185 -105,120" fill="url(#facet-mid)" />
+
+      <polygon points="-250,150 -190,230 -145,210 -195,155" fill="url(#facet-deep)" />
+      <polygon points="-195,155 -145,210 -100,225 -145,175" fill="url(#facet-dark)" />
+
+      <polygon points="-190,230 -115,285 -85,250 -145,210" fill="url(#facet-deep)" />
+
+      <!-- Right Lower Wing Sweeps -->
+      <polygon points="280,60 250,150 195,155 215,80" fill="url(#facet-dark)" />
+      <polygon points="215,80 195,155 145,175 155,105" fill="url(#facet-mid)" />
+      <polygon points="155,105 145,175 90,185 105,120" fill="url(#facet-light)" />
+
+      <polygon points="250,150 190,230 145,210 195,155" fill="url(#facet-mid)" />
+      <polygon points="195,155 145,210 100,225 145,175" fill="url(#facet-light)" />
+
+      <polygon points="190,230 115,285 85,250 145,210" fill="url(#facet-dark)" />
+
+      <!-- Topology Graph Node Pins (Embedded DAG Vectors on Wing Joints) -->
+      <circle cx="-205" cy="10" r="5" fill="#00f5ff" />
+      <circle cx="-150" cy="45" r="4.5" fill="#00f5ff" />
+      <circle cx="-155" cy="105" r="4" fill="#00f5ff" />
+      <circle cx="-100" cy="225" r="4" fill="#00f5ff" />
+
+      <circle cx="205" cy="10" r="5" fill="#00f5ff" />
+      <circle cx="150" cy="45" r="4.5" fill="#00f5ff" />
+      <circle cx="155" cy="105" r="4" fill="#00f5ff" />
+      <circle cx="100" cy="225" r="4" fill="#00f5ff" />
+
+      <!-- ================= ABDOMEN & LOWER SHIELD PLATES ================= -->
+      <polygon points="0,115 -55,55 -95,105 -50,170 0,180" fill="url(#facet-dark)" />
+      <polygon points="0,115 55,55 95,105 50,170 0,180" fill="url(#facet-mid)" />
+
+      <polygon points="0,180 -50,170 -65,225 0,240" fill="url(#facet-deep)" />
+      <polygon points="0,180 50,170 65,225 0,240" fill="url(#facet-dark)" />
+
+      <!-- ================= TAIL KEEL & RUDDER APEX ================= -->
+      <polygon points="0,240 -65,225 -45,260 0,285" fill="url(#facet-dark)" />
+      <polygon points="0,240 65,225 45,260 0,285" fill="url(#facet-mid)" />
+
+      <polygon points="0,285 -45,260 0,335" fill="url(#facet-deep)" />
+      <polygon points="0,285 45,260 0,335" fill="url(#facet-dark)" />
+
+      <!-- Tail Telemetry Fin Spine -->
+      <line x1="0" y1="240" x2="0" y2="335" stroke="#00f5ff" stroke-width="2" opacity="0.75" />
+    </g>
+  </g>
+</svg>`;
+}
+
+async function render() {
+  const outputDir = path.resolve('B:/workgit/stackloom/docs/images');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const svg = buildLogoSvg();
+  const svgPath = path.join(outputDir, 'stackloom_logo.svg');
+  const pngPath = path.join(outputDir, 'stackloom_logo.png');
+
+  fs.writeFileSync(svgPath, svg, 'utf8');
+  console.log(`Saved SVG: ${svgPath}`);
+
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1024 } });
+  const pngData = resvg.render().asPng();
+  fs.writeFileSync(pngPath, pngData);
+  console.log(`Saved PNG: ${pngPath} (${pngData.length} bytes)`);
+}
+
+render().catch(console.error);

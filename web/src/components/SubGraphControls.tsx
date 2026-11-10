@@ -63,9 +63,9 @@ export const SubGraphControls: React.FC<SubGraphControlsProps> = ({
   const warnCount = linterResult?.warning_count ?? 0;
 
   return (
-    <div className="h-12 bg-[#111827] border-b border-slate-800 px-4 flex items-center justify-between gap-3 text-xs">
+    <div className="min-h-12 py-1.5 bg-[#111827] border-b border-slate-800 px-3 sm:px-4 flex flex-wrap items-center justify-between gap-2.5 text-xs">
       {/* Left: Quick Actions, Profiles & Active Outage Banner */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {blastRadius ? (
           <div className="flex items-center gap-2 bg-red-950/70 border border-red-700/80 px-2.5 py-1 rounded-md text-red-200">
             <Flame className="w-3.5 h-3.5 text-red-400" />
@@ -156,7 +156,7 @@ export const SubGraphControls: React.FC<SubGraphControlsProps> = ({
       </div>
 
       {/* Right: Layout, Search, Linter Pill, Export Menus */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {/* Search */}
         <input
           type="text"

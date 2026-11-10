@@ -48,7 +48,7 @@ export const LinterDrawer: React.FC<LinterDrawerProps> = ({
   };
 
   return (
-    <aside className="fixed inset-y-0 right-0 w-[480px] bg-[#111827] border-l border-slate-800 shadow-2xl z-50 flex flex-col">
+    <aside className="fixed inset-y-0 right-0 w-full sm:w-[480px] max-w-full bg-[#111827] border-l border-slate-800 shadow-2xl z-50 flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
         <div>
