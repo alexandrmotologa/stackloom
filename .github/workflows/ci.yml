@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
@@ -37,3 +38,11 @@ jobs:
 
       - name: Test Linter CLI
         run: ./stackloom lint -f testdata/microservices/docker-compose.yml --no-probe --exit-code=false
+
+      - name: Verify CLI Version & Help Flags
+        run: |
+          ./stackloom --version
+          ./stackloom -v
+          ./stackloom -V
+          ./stackloom version
+          ./stackloom --help

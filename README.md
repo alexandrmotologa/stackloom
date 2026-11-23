@@ -9,8 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/alexandrmotologa/stackloom/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build Status" /></a>
-  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?logo=go" alt="Go Version" /></a>
+  <a href="https://github.com/alexandrmotologa/stackloom/actions/workflows/ci.yml"><img src="https://github.com/alexandrmotologa/stackloom/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
+  <a href="https://github.com/alexandrmotologa/stackloom/releases"><img src="https://img.shields.io/github/v/release/alexandrmotologa/stackloom?color=blue" alt="Release" /></a>
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8.svg?logo=go" alt="Go Version" /></a>
   <a href="https://react.dev"><img src="https://img.shields.io/badge/React-19-61DAFB.svg?logo=react" alt="React 19" /></a>
   <a href="https://github.com/alexandrmotologa/stackloom/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/RAM-%3C%2030MB-emerald.svg" alt="Memory footprint" />

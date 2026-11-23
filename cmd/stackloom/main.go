@@ -47,7 +47,7 @@ func main() {
 		runFix(args)
 	case "export":
 		runExport(args)
-	case "version", "--version", "-v":
+	case "version", "--version", "-v", "-V":
 		fmt.Printf("StackLoom v%s (< 30MB RAM Docker Compose Topology Studio)\n", version)
 	case "help", "--help", "-h":
 		printHelp()
